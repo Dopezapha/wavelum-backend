@@ -29,13 +29,47 @@ const totalIndexedBlocks = new client.Gauge({
   help: 'Total number of ledger blocks indexed'
 });
 
+// RPC Health Metrics
+const rpcEndpointHealth = new client.Gauge({
+  name: 'soroban_rpc_endpoint_health',
+  help: 'Health status of Soroban RPC endpoints (1=healthy, 0=unhealthy)',
+  labelNames: ['endpoint', 'state']
+});
+
+const rpcHealthCheckLatency = new client.Histogram({
+  name: 'soroban_rpc_health_check_latency_ms',
+  help: 'Latency of Soroban RPC health checks in milliseconds',
+  labelNames: ['endpoint'],
+  buckets: [10, 50, 100, 250, 500, 1000, 2500, 5000, 10000]
+});
+
+const rpcFailoverCount = new client.Counter({
+  name: 'soroban_rpc_failover_total',
+  help: 'Total number of Soroban RPC endpoint failover events',
+  labelNames: ['from_endpoint', 'to_endpoint']
+});
+
+const rpcRetryCount = new client.Counter({
+  name: 'soroban_rpc_retry_total',
+  help: 'Total number of Soroban RPC retry attempts',
+  labelNames: ['endpoint', 'method']
+});
+
 register.registerMetric(apiResponseTime);
 register.registerMetric(activeDbConnections);
 register.registerMetric(totalIndexedBlocks);
+register.registerMetric(rpcEndpointHealth);
+register.registerMetric(rpcHealthCheckLatency);
+register.registerMetric(rpcFailoverCount);
+register.registerMetric(rpcRetryCount);
 
 module.exports = {
   register,
   apiResponseTime,
   activeDbConnections,
-  totalIndexedBlocks
+  totalIndexedBlocks,
+  rpcEndpointHealth,
+  rpcHealthCheckLatency,
+  rpcFailoverCount,
+  rpcRetryCount
 };

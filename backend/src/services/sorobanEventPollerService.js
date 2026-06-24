@@ -144,6 +144,12 @@ class SorobanEventPollerService {
     try {
       console.log(`[${pollId}] Starting event poll...`);
       
+      // Select healthy endpoint before each polling cycle
+      const healthyEndpoint = this.rpcClient.selectHealthyEndpoint();
+      if (healthyEndpoint !== this.rpcClient.getActiveEndpoint()) {
+        console.log(`[${pollId}] Switched to healthy RPC endpoint: ${healthyEndpoint}`);
+      }
+
       // Check for reorgs before polling
       if (this.reorgDetector.isRunning) {
         const reorgCheck = await this.reorgDetector.triggerCheck();
