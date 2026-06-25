@@ -1756,34 +1756,8 @@ app.get("/api/token/:address/distribution", async (req, res) => {
         total_amount: {
           [sequelize.Op.gt]: 0
         }
-
-        , const: dividendRound = await dividendService.createDividendRound(
-          tokenAddress,
-          totalAmount,
-          dividendToken,
-          vestedTreatment,
-          unvestedMultiplier,
-          createdBy
-        ),
-
-        res, status(201).json({
-          success: true,
-          data: dividendRound
-        }),
-      }
-      , catch(error) {
-        console.error('Error creating dividend round:', error);
-        res.status(500).json({
-          success: false,
-          error: error.message
-        });
-      }
-    },
-
-      [sequelize.Op.gt]: 0,
-        },
-},
-  group: ["tag"],
+      },
+      group: ["tag"],
   raw: true,
     });
 
@@ -2559,122 +2533,106 @@ const startServer = async () => {
       console.error("Failed to initialize Vault Registry Indexing Job:", jobError);
     }
 
+    // Initialize Vault Balance Monitoring Job
+    try {
+      vaultBalanceMonitoringJob.start();
+      console.log("Vault Balance Monitoring Job started successfully.");
+    } catch (jobError) {
+      console.error("Failed to initialize Vault Balance Monitoring Job:", jobError);
+    }
+
+    // Initialize Vesting State Reconciliation Job
+    try {
+      const vestingStateReconciliationJob = new VestingStateReconciliationJob();
+      vestingStateReconciliationJob.start();
+      console.log("Vesting State Reconciliation Job started successfully.");
+    } catch (jobError) {
+      console.error("Failed to initialize Vesting State Reconciliation Job:", jobError);
+    }
+
+    // Initialize claim webhook listener
+    try {
+      claimWebhookListenerService.start();
+      console.log("Claim Webhook Listener started successfully.");
+    } catch (listenerError) {
+      console.error("Failed to initialize Claim Webhook Listener:", listenerError);
+    }
+
+    // Initialize Stellar Path Payment Listener
+    try {
+      stellarPathPaymentListener.start();
+      console.log("Stellar Path Payment Listener started successfully.");
+    } catch (listenerError) {
+      console.error("Failed to initialize Stellar Path Payment Listener:", listenerError);
+    }
+
+    // Start background metrics collection
+    setInterval(async () => {
+      try {
+        const { activeDbConnections, totalIndexedBlocks } = metricsService;
+        const { writeSequelize } = require('./database/connection');
+        if (writeSequelize && writeSequelize.connectionManager && writeSequelize.connectionManager.pool) {
+          const activeConnections = writeSequelize.connectionManager.pool.size - writeSequelize.connectionManager.pool.available;
+          activeDbConnections.set(activeConnections);
+        }
+
+        const { ClaimsHistory } = require('./models');
+        const maxBlock = await ClaimsHistory.max('block_number');
+        if (maxBlock) {
+          totalIndexedBlocks.set(parseInt(maxBlock));
+        }
+      } catch (error) {
+        console.error('Error updating metrics:', error);
+      }
+    }, 15000);
+
+    // Initialize Soroban Event Poller Service
+    try {
+      const SorobanEventPollerService = require('./services/sorobanEventPollerService');
+      const SorobanEventProcessor = require('./services/sorobanEventProcessor');
+
+      const sorobanEventPoller = new SorobanEventPollerService({
+        pollInterval: parseInt(process.env.SOROBAN_POLL_INTERVAL) || 30000,
+        batchSize: parseInt(process.env.SOROBAN_BATCH_SIZE) || 100,
+        contractAddresses: process.env.SOROBAN_CONTRACT_ADDRESSES ?
+          process.env.SOROBAN_CONTRACT_ADDRESSES.split(',') : []
+      });
+
+      const sorobanEventProcessor = new SorobanEventProcessor({
+        batchSize: parseInt(process.env.SOROBAN_PROCESSOR_BATCH_SIZE) || 50,
+        processingDelay: parseInt(process.env.SOROBAN_PROCESSOR_DELAY) || 1000
+      });
+
+      // Start both services
+      await sorobanEventPoller.start();
+      await sorobanEventProcessor.startProcessing();
+
+      console.log("Soroban Event Poller and Processor services started successfully.");
+
+      // Store services globally for access in routes
+      global.sorobanEventPoller = sorobanEventPoller;
+      global.sorobanEventProcessor = sorobanEventProcessor;
+
+    } catch (sorobanError) {
+      console.error("Failed to initialize Soroban Event services:", sorobanError);
+      console.log("Continuing without Soroban event indexing...");
+    }
+
     // Start the HTTP server
     httpServer.listen(PORT, () => {
       console.log(`Server is running on port ${PORT}`);
       console.log(`REST API available at: http://localhost:${PORT}`);
       if (graphQLServer) {
         console.log(`GraphQL API available at: http://localhost:${PORT}/graphql`);
-      });
-  } try 
-      catch (error) {
+      }
+    });
+  } catch (error) {
     console.error('Unable to start server:', error);
     process.exit(1);
   }
 };
 
 startServer();
-    };
-
-// Initialize Vault Balance Monitoring Job
-try {
-  vaultBalanceMonitoringJob.start();
-  console.log("Vault Balance Monitoring Job started successfully.");
-} catch (jobError) {
-  console.error("Failed to initialize Vault Balance Monitoring Job:", jobError);
-}
-
-// Initialize Vesting State Reconciliation Job
-try {
-  const vestingStateReconciliationJob = new VestingStateReconciliationJob();
-  vestingStateReconciliationJob.start();
-  console.log("Vesting State Reconciliation Job started successfully.");
-} catch (jobError) {
-  console.error("Failed to initialize Vesting State Reconciliation Job:", jobError);
-}
-
-// Initialize claim webhook listener
-try {
-  claimWebhookListenerService.start();
-  console.log("Claim Webhook Listener started successfully.");
-} catch (listenerError) {
-  console.error("Failed to initialize Claim Webhook Listener:", listenerError);
-}
-
-// Initialize Stellar Path Payment Listener
-try {
-  stellarPathPaymentListener.start();
-  console.log("Stellar Path Payment Listener started successfully.");
-} catch (listenerError) {
-  console.error("Failed to initialize Stellar Path Payment Listener:", listenerError);
-}
-// Start background metrics collection
-setInterval(async () => {
-  try {
-    const { activeDbConnections, totalIndexedBlocks } = metricsService;
-    const { writeSequelize } = require('./database/connection');
-    if (writeSequelize && writeSequelize.connectionManager && writeSequelize.connectionManager.pool) {
-      const activeConnections = writeSequelize.connectionManager.pool.size - writeSequelize.connectionManager.pool.available;
-      activeDbConnections.set(activeConnections);
-    }
-
-    const { ClaimsHistory } = require('./models');
-    const maxBlock = await ClaimsHistory.max('block_number');
-    if (maxBlock) {
-      totalIndexedBlocks.set(parseInt(maxBlock));
-    }
-  } catch (error) {
-    console.error('Error updating metrics:', error);
-  }
-}, 15000);
-
-// Initialize Soroban Event Poller Service
-try {
-  const SorobanEventPollerService = require('./services/sorobanEventPollerService');
-  const SorobanEventProcessor = require('./services/sorobanEventProcessor');
-
-  const sorobanEventPoller = new SorobanEventPollerService({
-    pollInterval: parseInt(process.env.SOROBAN_POLL_INTERVAL) || 30000,
-    batchSize: parseInt(process.env.SOROBAN_BATCH_SIZE) || 100,
-    contractAddresses: process.env.SOROBAN_CONTRACT_ADDRESSES ?
-      process.env.SOROBAN_CONTRACT_ADDRESSES.split(',') : []
-  });
-
-  const sorobanEventProcessor = new SorobanEventProcessor({
-    batchSize: parseInt(process.env.SOROBAN_PROCESSOR_BATCH_SIZE) || 50,
-    processingDelay: parseInt(process.env.SOROBAN_PROCESSOR_DELAY) || 1000
-  });
-
-  // Start both services
-  await sorobanEventPoller.start();
-  await sorobanEventProcessor.startProcessing();
-
-  console.log("Soroban Event Poller and Processor services started successfully.");
-
-  // Store services globally for access in routes
-  global.sorobanEventPoller = sorobanEventPoller;
-  global.sorobanEventProcessor = sorobanEventProcessor;
-
-} catch (sorobanError) {
-  console.error("Failed to initialize Soroban Event services:", sorobanError);
-  console.log("Continuing without Soroban event indexing...");
-}
-
-// Start HTTP server
-httpServer.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-  console.log(`REST API available at: http://localhost:${PORT}`);
-  if (graphQLServer) {
-    console.log(
-      `GraphQL API available at: http://localhost:${PORT}/graphql`,
-    );
-  }
-});
-  } catch (error) {
-  console.error("Unable to start server:", error);
-  process.exit(1);
-}
-};
 
 // ✅ Only start once if run directly
 if (require.main === module) {
